@@ -14,7 +14,9 @@ use Webkul\UVDesk\CoreFrameworkBundle\Entity\MicrosoftApp;
 use Webkul\UVDesk\CoreFrameworkBundle\Entity\MicrosoftAccount;
 use Webkul\UVDesk\CoreFrameworkBundle\Utils\Microsoft\Graph as MicrosoftGraph;
 use Webkul\UVDesk\CoreFrameworkBundle\Services\MicrosoftIntegration;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Webkul\UVDesk\MailboxBundle\Services\MailboxService;
+use Webkul\UVDesk\CoreFrameworkBundle\Entity\Attachment;
 use Webkul\UVDesk\MailboxBundle\Utils\IMAP;
 
 class RefreshMailboxCommand extends Command
@@ -217,7 +219,7 @@ class RefreshMailboxCommand extends Command
         
         // Lookup id for the 'inbox' folder
         $mailboxFolderId = null;
-        $mailboxFolderCollection = $this->getOutlookMailboxFolders($credentials['access_token'], $credentials['refresh_token'], $output);
+        $mailboxFolderCollection = $this->getOutlookMailboxFolders($credentials['access_token'], $credentials['refresh_token'], $microsoftApp, $microsoftAccount, $output);
         
         foreach ($mailboxFolderCollection as $mailboxFolder) {
             if ($mailboxFolder['displayName'] == 'Inbox') {
@@ -271,7 +273,7 @@ class RefreshMailboxCommand extends Command
                 $output->writeln("    - <comment>Processing email</comment> <info>$counter</info> <comment>of</comment> <info>$emailCount</info>:");
 
                 $detailedMessage = MicrosoftGraph\Me::message($message['id'], $credentials['access_token']);
-               
+             
                 $attachments = $detailedMessage['attachments'];
 
                 $outlookAttachments['outlookAttachments'] = [];
@@ -301,9 +303,11 @@ class RefreshMailboxCommand extends Command
 
                 $detailedMessage = array_merge($detailedMessage, $outlookAttachments);
 
-                // Remove inline images from email content
+                // Remove inline images, head and body tags from email content:
                 if (isset($detailedMessage['body']['content'])) {
                     $detailedMessage['body']['content'] = preg_replace('/<img[^>]+>/', '', $detailedMessage['body']['content']);
+                    $detailedMessage['body']['content'] = preg_replace('/<\/?head[^>]*>/', '', $detailedMessage['body']['content']);
+                    $detailedMessage['body']['content'] = preg_replace('/<\/?body[^>]*>/', '', $detailedMessage['body']['content']);
                 }
 
                 unset($detailedMessage['attachments']);
@@ -329,7 +333,7 @@ class RefreshMailboxCommand extends Command
         return;
     }
 
-    private function getOutlookMailboxFolders($accessToken, $refreshToken, OutputInterface $output)
+    private function getOutlookMailboxFolders($accessToken, $refreshToken, $microsoftApp, $microsoftAccount, OutputInterface $output)
     {
         $response = MicrosoftGraph\Me::mailFolders($accessToken);
 
@@ -337,13 +341,14 @@ class RefreshMailboxCommand extends Command
             if (!empty($response['error']['code']) && $response['error']['code'] == 'InvalidAuthenticationToken') {
                 $tokenResponse = $this->microsoftIntegration->refreshAccessToken($microsoftApp, $refreshToken);
 
-                if (!empty($tokenResponse['access_token'])) {
+                if (! empty($tokenResponse['access_token'])) {
                     $microsoftAccount->setCredentials(json_encode($tokenResponse));
     
                     $this->entityManager->persist($microsoftAccount);
                     $this->entityManager->flush();
 
-                    $response = MicrosoftGraph\Me::mailFolders($accessToken);
+                    $response = MicrosoftGraph\Me::mailFolders($tokenResponse['access_token']);
+                    
                 } else {
                     $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>Failed to retrieve a valid access token.</>\n");
 
