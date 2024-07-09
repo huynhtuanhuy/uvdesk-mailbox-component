@@ -179,6 +179,7 @@ class RefreshMailboxCommand extends Command
                     $output->writeln("    - <comment>Processing email</comment> <info>$counter</info> <comment>of</comment> <info>$emailCount</info>:");
                     
                     $message = imap_fetchbody($imap, $messageNumber, "");
+
                     list($response, $responseCode, $responseErrorMessage) = $this->parseInboundEmail($message, $output);
 
                     if ($responseCode == 200) {
@@ -270,6 +271,43 @@ class RefreshMailboxCommand extends Command
                 $output->writeln("    - <comment>Processing email</comment> <info>$counter</info> <comment>of</comment> <info>$emailCount</info>:");
 
                 $detailedMessage = MicrosoftGraph\Me::message($message['id'], $credentials['access_token']);
+               
+                $attachments = $detailedMessage['attachments'];
+
+                $outlookAttachments['outlookAttachments'] = [];
+
+                // Iterate through attachments for outlook.
+                foreach ($attachments as $attachment) {
+                    // Check if attachment is a file (file attachments have a contentBytes property)
+                    if (isset($attachment['contentBytes'])) {
+                        // Directory to save attachments
+                        $tempFilePath = sys_get_temp_dir();
+
+                        if (! is_dir($tempFilePath)) {
+                            mkdir($tempFilePath, 0755, true);
+                        }
+
+                        $filePath = $tempFilePath . '/' . $attachment['name'];
+
+                        $mimeType = mime_content_type($filePath);
+
+                        $outlookAttachments['outlookAttachments'][] = [
+                            'content'  => $attachment['contentBytes'],
+                            'mimeType' => $mimeType,
+                            'name'     => $attachment['name'],
+                        ];
+                    }
+                }
+
+                $detailedMessage = array_merge($detailedMessage, $outlookAttachments);
+
+                // Remove inline images from email content
+                if (isset($detailedMessage['body']['content'])) {
+                    $detailedMessage['body']['content'] = preg_replace('/<img[^>]+>/', '', $detailedMessage['body']['content']);
+                }
+
+                unset($detailedMessage['attachments']);
+
                 list($response, $responseCode, $responseErrorMessage) = $this->parseOutlookInboundEmail($detailedMessage, $output);
 
                 if ($responseCode == 200) {

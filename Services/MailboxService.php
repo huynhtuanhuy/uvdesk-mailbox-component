@@ -538,7 +538,7 @@ class MailboxService
             
             $thread = $this->container->get('ticket.service')->createThread($ticket, $mailData);
             
-            if($thread->getThreadType() == 'reply') {
+            if ($thread->getThreadType() == 'reply') {
                 if ($thread->getCreatedBy() == 'customer') {
                     $event = new GenericEvent(CoreWorkflowEvents\Ticket\CustomerReply::getId(), [
                         'entity' =>  $ticket,
@@ -656,11 +656,14 @@ class MailboxService
         $mailData['message'] = autolink($htmlFilter->addClassEmailReplyQuote($outlookEmail['body']['content']));
 
         $mailData['attachments'] = [];
-        // $mailData['attachments'] = $parser->getAttachments();
+        $mailData['attachmentContent'] = isset($outlookEmail['outlookAttachments']) ? $outlookEmail['outlookAttachments'] : [];
 
         $website = $this->entityManager->getRepository(Website::class)->findOneByCode('knowledgebase');
         
-        if (!empty($mailData['from']) && $this->container->get('ticket.service')->isEmailBlocked($mailData['from'], $website)) {
+        if (
+            ! empty($mailData['from'])
+            && $this->container->get('ticket.service')->isEmailBlocked($mailData['from'], $website)
+        ) {
             return [
                 'message' => "Received email where the sender email address is present in the block list. Skipping this email from further processing.", 
                 'content' => [
@@ -820,12 +823,12 @@ class MailboxService
         }
 
         return [
-            'message' => "Inbound email processsed successfully.", 
+            'message' => "Inbound email processed successfully.", 
             'content' => [
                 'from' => !empty($mailData['from']) ? $mailData['from'] : null, 
                 'thread' => !empty($thread) ? $thread->getId() : null, 
                 'ticket' => !empty($ticket) ? $ticket->getId() : null, 
-            ], 
+            ],
         ];
     }
 }
