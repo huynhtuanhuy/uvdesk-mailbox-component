@@ -216,7 +216,6 @@ class RefreshMailboxCommand extends Command
                 'value' => $timeSpan, 
             ], 
         ];
-        
         // Lookup id for the 'inbox' folder
         $mailboxFolderId = null;
         $mailboxFolderCollection = $this->getOutlookMailboxFolders($credentials['access_token'], $credentials['refresh_token'], $microsoftApp, $microsoftAccount, $output);
@@ -224,119 +223,115 @@ class RefreshMailboxCommand extends Command
         foreach ($mailboxFolderCollection as $mailboxFolder) {
             if ($mailboxFolder['displayName'] == 'Inbox') {
                 $mailboxFolderId = $mailboxFolder['id'];
-
                 break;
             }
         }
 
-        $response = MicrosoftGraph\Me::messages($credentials['access_token'], $mailboxFolderId, $filters);
+        $nextLink = null;
+        $counter = 1;
 
-        if (!empty($response['error'])) {
-            if (!empty($response['error']['code']) && $response['error']['code'] == 'InvalidAuthenticationToken') {
-                $tokenResponse = $this->microsoftIntegration->refreshAccessToken($microsoftApp, $credentials['refresh_token']);
+        do {
+            $response = $nextLink ? MicrosoftGraph\Me::getMessagesWithNextLink($nextLink, $credentials['access_token']) : MicrosoftGraph\Me::messages($credentials['access_token'], $mailboxFolderId, $filters);
 
-                if (!empty($tokenResponse['access_token'])) {
-                    $microsoftAccount->setCredentials(json_encode($tokenResponse));
-    
-                    $this->entityManager->persist($microsoftAccount);
-                    $this->entityManager->flush();
+            if (! empty($response['error'])) {
+                if (!empty($response['error']['code']) && $response['error']['code'] == 'InvalidAuthenticationToken') {
+                    $tokenResponse = $this->microsoftIntegration->refreshAccessToken($microsoftApp, $credentials['refresh_token']);
 
-                    $response = MicrosoftGraph\Me::messages($credentials['access_token'], $filters);
+                    if (!empty($tokenResponse['access_token'])) {
+                        $microsoftAccount->setCredentials(json_encode($tokenResponse));
+                        $this->entityManager->persist($microsoftAccount);
+                        $this->entityManager->flush();
+
+                        $credentials['access_token'] = $tokenResponse['access_token'];
+                        $response = $nextLink ? MicrosoftGraph\Me::getMessagesWithNextLink($nextLink, $credentials['access_token']) : MicrosoftGraph\Me::messages($credentials['access_token'], $mailboxFolderId, $filters);
+                    } else {
+                        $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>Failed to retrieve a valid access token.</>\n");
+                        return;
+                    }
                 } else {
-                    $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>Failed to retrieve a valid access token.</>\n");
-
+                    $errorCode = $response['error']['code'] ?? 'Unknown';
+                    $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>An unexpected api error occurred of type '" . $errorCode . "'.</>\n");
                     return;
                 }
-            } else {
-                if (!empty($response['error']['code'])) {
-                    $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>An unexpected api error occurred of type '" . $response['error']['code'] . "'.</>\n");
-                } else {
-                    $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>An unexpected api error occurred.</>\n");
-                }
-
-                return;
             }
-        }
-        
-        $emailCount = $response['@odata.count'] ?? 'NA';
 
-        $output->writeln("  - Found a total of <info>$emailCount</info> emails in mailbox since <comment>$timeSpan</comment>");
+            if ($counter === 1) {
+                $emailCount = $response['@odata.count'] ?? 'NA';
+                $output->writeln("  - Found a total of <info>$emailCount</info> emails in mailbox since <comment>$timeSpan</comment>");
+            }
 
-        if (!empty($response['value'])) {
-            $output->writeln("  - Found a total of <info>$emailCount</info> emails in mailbox since <comment>$timeSpan</comment>");
-            $output->writeln("\n  # Processing all found emails iteratively:");
-            $output->writeln("\n    <bg=black;fg=bright-white>API</> <options=underscore>" . $this->outlookEndpoint . "</>\n");
+            if (! empty($response['value'])) {
+                $output->writeln("\n  # Processing all found emails iteratively:");
+                $output->writeln("\n    <bg=black;fg=bright-white>API</> <options=underscore>" . $this->outlookEndpoint . "</>\n");
 
-            $counter = 1;
+                foreach ($response['value'] as $message) {
+                    $output->writeln("    - <comment>Processing email</comment> <info>$counter</info> <comment>of</comment> <info>$emailCount</info>:");
 
-            foreach ($response['value'] as $message) {
-                $output->writeln("    - <comment>Processing email</comment> <info>$counter</info> <comment>of</comment> <info>$emailCount</info>:");
+                    $detailedMessage = MicrosoftGraph\Me::message($message['id'], $credentials['access_token']);
 
-                $detailedMessage = MicrosoftGraph\Me::message($message['id'], $credentials['access_token']);
-             
-                $attachments = $detailedMessage['attachments'];
+                    $attachments = $detailedMessage['attachments'];
+                    $outlookAttachments = ['outlookAttachments' => []];
 
-                $outlookAttachments['outlookAttachments'] = [];
+                    foreach ($attachments as $attachment) {
+                        if (isset($attachment['contentBytes'])) {
+                            $tempFilePath = sys_get_temp_dir();
 
-                // Iterate through attachments for outlook.
-                foreach ($attachments as $attachment) {
-                    // Check if attachment is a file (file attachments have a contentBytes property)
-                    if (isset($attachment['contentBytes'])) {
-                        // Directory to save attachments
-                        $tempFilePath = sys_get_temp_dir();
+                            if (! is_dir($tempFilePath)) {
+                                mkdir($tempFilePath, 0755, true);
+                            }
 
-                        if (! is_dir($tempFilePath)) {
-                            mkdir($tempFilePath, 0755, true);
+                            $filePath = $tempFilePath . '/' . $attachment['name'];
+                            if (file_exists($filePath)) {
+                                $mimeType = mime_content_type($filePath);
+                            } else {
+                                $mimeType = 'application/octet-stream';
+                            }
+
+                            $outlookAttachments['outlookAttachments'][] = [
+                                'content'  => $attachment['contentBytes'],
+                                'mimeType' => $mimeType,
+                                'name'     => $attachment['name'],
+                            ];
                         }
-
-                        $filePath = $tempFilePath . '/' . $attachment['name'];
-
-                        $mimeType = mime_content_type($filePath);
-
-                        $outlookAttachments['outlookAttachments'][] = [
-                            'content'  => $attachment['contentBytes'],
-                            'mimeType' => $mimeType,
-                            'name'     => $attachment['name'],
-                        ];
                     }
-                }
 
-                $detailedMessage = array_merge($detailedMessage, $outlookAttachments);
+                    $detailedMessage = array_merge($detailedMessage, $outlookAttachments);
 
-                // Remove inline images, head and body tags from email content:
-                if (isset($detailedMessage['body']['content'])) {
-                    $detailedMessage['body']['content'] = preg_replace('/<img[^>]+>/', '', $detailedMessage['body']['content']);
-                    $detailedMessage['body']['content'] = preg_replace('/<\/?head[^>]*>/', '', $detailedMessage['body']['content']);
-                    $detailedMessage['body']['content'] = preg_replace('/<\/?body[^>]*>/', '', $detailedMessage['body']['content']);
-                }
+                    if (isset($detailedMessage['body']['content'])) {
+                        $detailedMessage['body']['content'] = preg_replace('/<img[^>]+>/', '', $detailedMessage['body']['content']);
+                        $detailedMessage['body']['content'] = preg_replace('/<\/?head[^>]*>/', '', $detailedMessage['body']['content']);
+                        $detailedMessage['body']['content'] = preg_replace('/<\/?body[^>]*>/', '', $detailedMessage['body']['content']);
+                    }
 
-                unset($detailedMessage['attachments']);
+                    unset($detailedMessage['attachments']);
 
-                list($response, $responseCode, $responseErrorMessage) = $this->parseOutlookInboundEmail($detailedMessage, $output);
+                    list($response, $responseCode, $responseErrorMessage) = $this->parseOutlookInboundEmail($detailedMessage, $output);
 
-                if ($responseCode == 200) {
-                    $output->writeln("\n      <bg=green;fg=bright-white;options=bold>200</> " . $response['message'] . "\n");
-                } else {
-                    if (!empty($responseErrorMessage)) {
-                        $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>$responseErrorMessage</>\n");
+                    if ($responseCode == 200) {
+                        $output->writeln("\n      <bg=green;fg=bright-white;options=bold>200</> " . $response['message'] . "\n");
                     } else {
-                        $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>" . ($response['message'] ?? 'Null response received') . "</>\n");
+                        if (!empty($responseErrorMessage)) {
+                            $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>$responseErrorMessage</>\n");
+                        } else {
+                            $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>" . ($response['message'] ?? 'Null response received') . "\n");
+                        }
                     }
-                }
 
-                $counter++;
+                    $counter++;
+                }
             }
 
-            $output->writeln("  - <info>Mailbox refreshed successfully!</info>");
-        }
+            $nextLink = $response['@odata.nextLink'] ?? null;
 
-        return;
+        } while ($nextLink);
+
+        $output->writeln("  - <info>Mailbox refreshed successfully!</info>");
     }
 
     private function getOutlookMailboxFolders($accessToken, $refreshToken, $microsoftApp, $microsoftAccount, OutputInterface $output)
     {
         $response = MicrosoftGraph\Me::mailFolders($accessToken);
-
+        
         if (!empty($response['error'])) {
             if (!empty($response['error']['code']) && $response['error']['code'] == 'InvalidAuthenticationToken') {
                 $tokenResponse = $this->microsoftIntegration->refreshAccessToken($microsoftApp, $refreshToken);
