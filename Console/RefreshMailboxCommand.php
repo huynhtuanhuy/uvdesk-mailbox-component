@@ -14,9 +14,7 @@ use Webkul\UVDesk\CoreFrameworkBundle\Entity\MicrosoftApp;
 use Webkul\UVDesk\CoreFrameworkBundle\Entity\MicrosoftAccount;
 use Webkul\UVDesk\CoreFrameworkBundle\Utils\Microsoft\Graph as MicrosoftGraph;
 use Webkul\UVDesk\CoreFrameworkBundle\Services\MicrosoftIntegration;
-use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Webkul\UVDesk\MailboxBundle\Services\MailboxService;
-use Webkul\UVDesk\CoreFrameworkBundle\Entity\Attachment;
 use Webkul\UVDesk\MailboxBundle\Utils\IMAP;
 
 class RefreshMailboxCommand extends Command
@@ -26,10 +24,10 @@ class RefreshMailboxCommand extends Command
 
     public function __construct(ContainerInterface $container, EntityManagerInterface $entityManager, MicrosoftIntegration $microsoftIntegration, MailboxService $mailboxService)
     {
-        $this->container = $container;
-        $this->entityManager = $entityManager;
+        $this->container            = $container;
+        $this->entityManager        = $entityManager;
         $this->microsoftIntegration = $microsoftIntegration;
-        $this->mailboxService = $mailboxService;
+        $this->mailboxService       = $mailboxService;
 
         parent::__construct();
     }
@@ -187,7 +185,7 @@ class RefreshMailboxCommand extends Command
                     if ($responseCode == 200) {
                         $output->writeln("\n      <bg=green;fg=bright-white;options=bold>200</> " . $response['message'] . "\n");
                     } else {
-                        if (!empty($responseErrorMessage)) {
+                        if (! empty($responseErrorMessage)) {
                             $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>$responseErrorMessage</>\n");
                         } else {
                             $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>" . $response['message'] . "</>\n");
@@ -216,7 +214,7 @@ class RefreshMailboxCommand extends Command
                 'value' => $timeSpan, 
             ], 
         ];
-        // Lookup id for the 'inbox' folder
+        
         $mailboxFolderId = null;
         $mailboxFolderCollection = $this->getOutlookMailboxFolders($credentials['access_token'], $credentials['refresh_token'], $microsoftApp, $microsoftAccount, $output);
         
@@ -234,10 +232,10 @@ class RefreshMailboxCommand extends Command
             $response = $nextLink ? MicrosoftGraph\Me::getMessagesWithNextLink($nextLink, $credentials['access_token']) : MicrosoftGraph\Me::messages($credentials['access_token'], $mailboxFolderId, $filters);
 
             if (! empty($response['error'])) {
-                if (!empty($response['error']['code']) && $response['error']['code'] == 'InvalidAuthenticationToken') {
+                if (! empty($response['error']['code']) && $response['error']['code'] == 'InvalidAuthenticationToken') {
                     $tokenResponse = $this->microsoftIntegration->refreshAccessToken($microsoftApp, $credentials['refresh_token']);
 
-                    if (!empty($tokenResponse['access_token'])) {
+                    if (! empty($tokenResponse['access_token'])) {
                         $microsoftAccount->setCredentials(json_encode($tokenResponse));
                         $this->entityManager->persist($microsoftAccount);
                         $this->entityManager->flush();
@@ -246,11 +244,13 @@ class RefreshMailboxCommand extends Command
                         $response = $nextLink ? MicrosoftGraph\Me::getMessagesWithNextLink($nextLink, $credentials['access_token']) : MicrosoftGraph\Me::messages($credentials['access_token'], $mailboxFolderId, $filters);
                     } else {
                         $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>Failed to retrieve a valid access token.</>\n");
+                        
                         return;
                     }
                 } else {
                     $errorCode = $response['error']['code'] ?? 'Unknown';
                     $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>An unexpected api error occurred of type '" . $errorCode . "'.</>\n");
+                    
                     return;
                 }
             }
@@ -281,6 +281,7 @@ class RefreshMailboxCommand extends Command
                             }
 
                             $filePath = $tempFilePath . '/' . $attachment['name'];
+
                             if (file_exists($filePath)) {
                                 $mimeType = mime_content_type($filePath);
                             } else {
@@ -313,7 +314,8 @@ class RefreshMailboxCommand extends Command
                         if (!empty($responseErrorMessage)) {
                             $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>$responseErrorMessage</>\n");
                         } else {
-                            $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>" . ($response['message'] ?? 'Null response received') . "\n");
+                            $responseErrorMessage = $response['message'] ?? "Null response received";
+                            $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>$responseErrorMessage</>\n");
                         }
                     }
 
@@ -332,8 +334,11 @@ class RefreshMailboxCommand extends Command
     {
         $response = MicrosoftGraph\Me::mailFolders($accessToken);
         
-        if (!empty($response['error'])) {
-            if (!empty($response['error']['code']) && $response['error']['code'] == 'InvalidAuthenticationToken') {
+        if (! empty($response['error'])) {
+            if (
+                ! empty($response['error']['code']) 
+                && $response['error']['code'] == 'InvalidAuthenticationToken'
+            ) {
                 $tokenResponse = $this->microsoftIntegration->refreshAccessToken($microsoftApp, $refreshToken);
 
                 if (! empty($tokenResponse['access_token'])) {
@@ -350,7 +355,7 @@ class RefreshMailboxCommand extends Command
                     return [];
                 }
             } else {
-                if (!empty($response['error']['code'])) {
+                if (! empty($response['error']['code'])) {
                     $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>An unexpected api error occurred of type '" . $response['error']['code'] . "'.</>\n");
                 } else {
                     $output->writeln("\n      <bg=red;fg=white;options=bold>ERROR</> <fg=red>An unexpected api error occurred.</>\n");
@@ -379,7 +384,9 @@ class RefreshMailboxCommand extends Command
         $responseCode = curl_getinfo($curlHandler, CURLINFO_HTTP_CODE);
         $responseErrorMessage = null;
 
-        if (curl_errno($curlHandler) || $responseCode != 200) {
+        if (curl_errno($curlHandler)
+            || $responseCode != 200
+        ) {
             $responseErrorMessage = curl_error($curlHandler);
         }
 
@@ -404,7 +411,10 @@ class RefreshMailboxCommand extends Command
         $responseCode = curl_getinfo($curlHandler, CURLINFO_HTTP_CODE);
         $responseErrorMessage = null;
 
-        if (curl_errno($curlHandler) || $responseCode != 200) {
+        if (
+            curl_errno($curlHandler)
+            || $responseCode != 200
+        ) {
             $responseErrorMessage = curl_error($curlHandler);
         }
 
