@@ -113,12 +113,14 @@ class MailboxChannelXHR extends AbstractController
 
     public function processOutlookMailXHR(Request $request, MailboxService $mailboxService)
     {
+        $email = $request->get('email') ?? $request->toArray()['email'];
+        
         if ("POST" != $request->getMethod()) {
             return new JsonResponse([
                 'success' => false, 
                 'message' => 'Request not supported.'
             ], 500);
-        } else if (null == $request->get('email')) {
+        } else if (null == $email) {
             return new JsonResponse([
                 'success' => false, 
                 'message' => 'Missing required email data in request content.'
@@ -126,12 +128,12 @@ class MailboxChannelXHR extends AbstractController
         }
 
         try {
-            $processedThread = $mailboxService->processOutlookMail($request->get('email'));
+            $processedThread = $mailboxService->processOutlookMail($email);
         } catch (\Exception $e) {
             return new JsonResponse([
                 'success' => false, 
                 'message' => $e->getMessage(), 
-                'params' => $request->get('email')
+                'params' => $email
             ], 500);
         }
 

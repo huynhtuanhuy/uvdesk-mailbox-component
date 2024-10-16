@@ -300,14 +300,14 @@ class MailboxService
             }
         }
 
-        // // Search Criteria 4: Find ticket based on subject
-        // if (!empty($messageSubject)) {
-        //     $ticket = $threadRepository->findTicketBySubject($senderEmail, $subject);
+        // Search Criteria 4: Find ticket based on subject
+        if (!empty($criterias['from']) && !empty($criterias['subject'])) {
+            $ticket = $threadRepository->findTicketBySubject($criterias['from'], $criterias['subject']);
 
-        //     if (!empty($ticket)) {
-        //         return $ticket;
-        //     }
-        // }
+            if (!empty($ticket)) {
+                return $ticket;
+            }
+        }
         
         return null;
     }
