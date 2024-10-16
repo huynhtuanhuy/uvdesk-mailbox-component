@@ -301,7 +301,7 @@ class MailboxService
         }
 
         // Search Criteria 4: Find ticket based on subject
-        if (!empty($criterias['from']) && !empty($criterias['subject'])) {
+        if (!empty($criterias['replyTo']) && !empty($criterias['from']) && !empty($criterias['subject'])) {
             $ticket = $threadRepository->findTicketBySubject($criterias['from'], $criterias['subject']);
 
             if (!empty($ticket)) {
@@ -459,6 +459,7 @@ class MailboxService
         $ticket = $this->searchExistingTickets([
             'messageId' => $mailData['messageId'],
             'inReplyTo' => $mailData['inReplyTo'],
+            'replyTo' => $mailData['replyTo'],
             'referenceIds' => $mailData['referenceIds'],
             'from' => $mailData['from'],
             'subject' => $mailData['subject'],
@@ -715,6 +716,7 @@ class MailboxService
         $ticket = $this->searchExistingTickets([
             'messageId' => $mailData['messageId'],
             'inReplyTo' => $mailData['inReplyTo'],
+            'replyTo' => $mailData['replyTo'],
             'referenceIds' => $mailData['referenceIds'],
             'from' => $mailData['from'],
             'subject' => $mailData['subject'], 
